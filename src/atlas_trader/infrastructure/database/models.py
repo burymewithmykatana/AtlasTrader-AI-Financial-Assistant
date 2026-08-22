@@ -89,6 +89,16 @@ class SystemEventRecord(Base):
 
 class RiskStateRecord(Base):
     __tablename__ = "risk_state"
+    __table_args__ = (
+        CheckConstraint("starting_equity > 0", name="ck_risk_starting_equity_positive"),
+        CheckConstraint("peak_equity > 0", name="ck_risk_peak_equity_positive"),
+        CheckConstraint("drawdown >= 0", name="ck_risk_drawdown_nonnegative"),
+        CheckConstraint("open_positions >= 0", name="ck_risk_open_positions_nonnegative"),
+        CheckConstraint(
+            "system_state IN ('enabled', 'paused', 'killed')",
+            name="ck_risk_system_state",
+        ),
+    )
 
     account_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     system_state: Mapped[str] = mapped_column(String(16), nullable=False, default="enabled")
@@ -175,7 +185,12 @@ class SignalRecord(Base):
 
 class OrderIntentRecord(Base):
     __tablename__ = "order_intents"
-    __table_args__ = (UniqueConstraint("client_order_id", name="uq_order_intents_client_order_id"),)
+    __table_args__ = (
+        UniqueConstraint("client_order_id", name="uq_order_intents_client_order_id"),
+        CheckConstraint("char_length(client_order_id) <= 32", name="ck_intent_client_id_length"),
+        CheckConstraint("requested_quantity > 0", name="ck_intent_quantity_positive"),
+        CheckConstraint("reference_price > 0", name="ck_intent_reference_price_positive"),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     client_order_id: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -207,6 +222,7 @@ class OrderIntentRecord(Base):
 
 class PaperBalanceRecord(Base):
     __tablename__ = "paper_balances"
+    __table_args__ = (CheckConstraint("available >= 0", name="ck_paper_balance_nonnegative"),)
 
     account_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     asset: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -219,6 +235,7 @@ class PaperPositionRecord(Base):
     __table_args__ = (
         UniqueConstraint("account_id", "exchange", "symbol", name="uq_paper_positions_identity"),
         CheckConstraint("quantity >= 0", name="ck_paper_position_quantity_nonnegative"),
+        CheckConstraint("average_cost >= 0", name="ck_paper_position_cost_nonnegative"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -238,6 +255,9 @@ class PaperFillRecord(Base):
     __table_args__ = (
         UniqueConstraint("intent_id", name="uq_paper_fills_intent"),
         UniqueConstraint("execution_event_id", name="uq_paper_fills_execution_event"),
+        CheckConstraint("quantity > 0", name="ck_paper_fill_quantity_positive"),
+        CheckConstraint("price > 0", name="ck_paper_fill_price_positive"),
+        CheckConstraint("fee >= 0", name="ck_paper_fill_fee_nonnegative"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)

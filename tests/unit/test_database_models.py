@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import cast
 
-from sqlalchemy import Numeric, Table, UniqueConstraint
+from sqlalchemy import CheckConstraint, Numeric, Table, UniqueConstraint
 from sqlalchemy.dialects.postgresql import insert
 
 from atlas_trader.domain.metadata import Metadata
@@ -9,6 +9,9 @@ from atlas_trader.infrastructure.database.models import (
     CandleRecord,
     MarketRecord,
     OrderIntentRecord,
+    PaperBalanceRecord,
+    PaperFillRecord,
+    PaperPositionRecord,
     RiskStateRecord,
     SignalRecord,
 )
@@ -105,3 +108,39 @@ def test_order_intent_idempotency_and_numeric_schema() -> None:
         "reference_price",
     ):
         assert isinstance(table.c[name].type, Numeric)
+
+
+def test_phase2_database_safety_checks_are_declared_in_orm_metadata() -> None:
+    expected = {
+        RiskStateRecord: {
+            "ck_risk_starting_equity_positive",
+            "ck_risk_peak_equity_positive",
+            "ck_risk_drawdown_nonnegative",
+            "ck_risk_open_positions_nonnegative",
+            "ck_risk_system_state",
+        },
+        OrderIntentRecord: {
+            "ck_intent_client_id_length",
+            "ck_intent_quantity_positive",
+            "ck_intent_reference_price_positive",
+        },
+        PaperBalanceRecord: {"ck_paper_balance_nonnegative"},
+        PaperPositionRecord: {
+            "ck_paper_position_quantity_nonnegative",
+            "ck_paper_position_cost_nonnegative",
+        },
+        PaperFillRecord: {
+            "ck_paper_fill_quantity_positive",
+            "ck_paper_fill_price_positive",
+            "ck_paper_fill_fee_nonnegative",
+        },
+    }
+
+    for model, names in expected.items():
+        table = cast(Table, model.__table__)
+        actual = {
+            constraint.name
+            for constraint in table.constraints
+            if isinstance(constraint, CheckConstraint)
+        }
+        assert names <= actual
