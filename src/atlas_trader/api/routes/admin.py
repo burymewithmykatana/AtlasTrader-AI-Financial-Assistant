@@ -7,11 +7,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas_trader.application.admin import AdminStateService
+from atlas_trader.application.trading import PaperAccountService
 from atlas_trader.config.settings import get_settings
 from atlas_trader.domain.exceptions import InvalidSystemStateTransitionError
 from atlas_trader.domain.models.risk import RiskState
 from atlas_trader.infrastructure.database.repositories.events import (
     SqlAlchemySystemEventRepository,
+)
+from atlas_trader.infrastructure.database.repositories.paper import (
+    SqlAlchemyPaperPortfolioRepository,
 )
 from atlas_trader.infrastructure.database.repositories.risk import (
     SqlAlchemyRiskStateRepository,
@@ -27,11 +31,20 @@ class AdminTransitionRequest(BaseModel):
     operator_id: str = Field(min_length=1, max_length=64)
 
 
-def _service(session: AsyncSession) -> AdminStateService:
+async def _service(session: AsyncSession) -> AdminStateService:
+    settings = get_settings()
+    risk_states = SqlAlchemyRiskStateRepository(session)
+    await PaperAccountService(
+        SqlAlchemyPaperPortfolioRepository(session),
+        risk_states,
+        account_id=settings.paper_account_id,
+        quote_asset=settings.paper_quote_asset,
+        initial_balance=settings.paper_initial_balance,
+    ).ensure_initialized(datetime.now(UTC))
     return AdminStateService(
-        SqlAlchemyRiskStateRepository(session),
+        risk_states,
         SqlAlchemySystemEventRepository(session),
-        account_id=get_settings().paper_account_id,
+        account_id=settings.paper_account_id,
     )
 
 
@@ -48,13 +61,13 @@ async def _run_transition(action: Awaitable[RiskState]) -> RiskState:
 
 @router.get("/status", response_model=RiskState)
 async def status(session: SessionDep) -> RiskState:
-    return await _run_transition(_service(session).status())
+    return await _run_transition((await _service(session)).status())
 
 
 @router.post("/pause", response_model=RiskState)
 async def pause(body: AdminTransitionRequest, request: Request, session: SessionDep) -> RiskState:
     return await _run_transition(
-        _service(session).pause(
+        (await _service(session)).pause(
             reason=body.reason,
             operator_id=body.operator_id,
             correlation_id=_correlation_id(request),
@@ -66,7 +79,7 @@ async def pause(body: AdminTransitionRequest, request: Request, session: Session
 @router.post("/resume", response_model=RiskState)
 async def resume(body: AdminTransitionRequest, request: Request, session: SessionDep) -> RiskState:
     return await _run_transition(
-        _service(session).resume(
+        (await _service(session)).resume(
             reason=body.reason,
             operator_id=body.operator_id,
             correlation_id=_correlation_id(request),
@@ -78,7 +91,7 @@ async def resume(body: AdminTransitionRequest, request: Request, session: Sessio
 @router.post("/kill", response_model=RiskState)
 async def kill(body: AdminTransitionRequest, request: Request, session: SessionDep) -> RiskState:
     return await _run_transition(
-        _service(session).kill(
+        (await _service(session)).kill(
             reason=body.reason,
             operator_id=body.operator_id,
             correlation_id=_correlation_id(request),
@@ -92,7 +105,7 @@ async def reset_kill(
     body: AdminTransitionRequest, request: Request, session: SessionDep
 ) -> RiskState:
     return await _run_transition(
-        _service(session).reset_killed(
+        (await _service(session)).reset_killed(
             reason=body.reason,
             operator_id=body.operator_id,
             correlation_id=_correlation_id(request),

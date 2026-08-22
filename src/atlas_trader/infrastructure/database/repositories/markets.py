@@ -81,6 +81,15 @@ class SqlAlchemyMarketRepository:
         records = (await self._session.scalars(statement)).all()
         return [self._to_domain(record) for record in records]
 
+    async def get(self, exchange: str, symbol: str) -> Market | None:
+        record = await self._session.scalar(
+            select(MarketRecord).where(
+                MarketRecord.exchange == exchange,
+                MarketRecord.symbol == symbol,
+            )
+        )
+        return None if record is None else self._to_domain(record)
+
     @staticmethod
     def _to_domain(record: MarketRecord) -> Market:
         return Market(

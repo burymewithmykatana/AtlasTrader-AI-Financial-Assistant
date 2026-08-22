@@ -4,8 +4,11 @@ from uuid import UUID, uuid4
 from pydantic import AwareDatetime, Field, model_validator
 
 from atlas_trader.domain.enums.order_side import OrderSide
+from atlas_trader.domain.enums.signal_action import SignalAction
 from atlas_trader.domain.metadata import Metadata
 from atlas_trader.domain.models.base import ZERO, DomainModel
+from atlas_trader.domain.models.order import OrderIntent
+from atlas_trader.domain.models.risk import RiskDecision
 
 
 class PaperBalance(DomainModel):
@@ -79,3 +82,20 @@ class ReconciliationReport(DomainModel):
     anomalies: tuple[str, ...] = ()
     fill_count: int = Field(ge=0)
     checked_at: AwareDatetime
+
+
+class PaperTradingCycleResult(DomainModel):
+    correlation_id: str
+    signal_action: SignalAction
+    risk_decision: RiskDecision | None = None
+    intent: OrderIntent | None = None
+    execution: PaperExecutionResult | None = None
+    reconciliation: ReconciliationReport | None = None
+    outcome: str
+
+
+class PaperPortfolioView(DomainModel):
+    account_id: str
+    balances: tuple[PaperBalance, ...]
+    positions: tuple[PaperPosition, ...]
+    latest_snapshot: PaperPortfolioSnapshot | None = None

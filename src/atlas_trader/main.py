@@ -14,6 +14,8 @@ from atlas_trader.api.routes.backtests import router as backtests_router
 from atlas_trader.api.routes.health import router as health_router
 from atlas_trader.api.routes.market_data import router as market_data_router
 from atlas_trader.api.routes.markets import router as markets_router
+from atlas_trader.api.routes.signals import router as signals_router
+from atlas_trader.api.routes.trading import router as trading_router
 from atlas_trader.config.settings import get_settings
 from atlas_trader.infrastructure.database.session import dispose_engine
 from atlas_trader.infrastructure.logging import configure_logging
@@ -83,6 +85,8 @@ def create_app() -> FastAPI:
     application.include_router(markets_router)
     application.include_router(market_data_router)
     application.include_router(backtests_router)
+    application.include_router(signals_router)
+    application.include_router(trading_router)
     return application
 
 

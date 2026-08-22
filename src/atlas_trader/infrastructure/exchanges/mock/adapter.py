@@ -61,7 +61,8 @@ class MockExchangeAdapter:
     async def get_markets(self) -> list[Market]:
         return sorted(self._markets.values(), key=lambda market: market.symbol)
 
-    async def get_ticker(self, symbol: str) -> Ticker:
+    async def get_ticker(self, symbol: str, *, correlation_id: str | None = None) -> Ticker:
+        del correlation_id
         try:
             return self._tickers[symbol]
         except KeyError as exc:

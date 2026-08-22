@@ -85,8 +85,10 @@ class NobitexPublicAdapter:
         snapshot = await self.discover_markets(correlation_id=str(uuid4()))
         return list(snapshot.markets)
 
-    async def get_ticker(self, symbol: str) -> Ticker:
-        payload = await self._client.get_orderbook(symbol, correlation_id=str(uuid4()))
+    async def get_ticker(self, symbol: str, *, correlation_id: str | None = None) -> Ticker:
+        payload = await self._client.get_orderbook(
+            symbol, correlation_id=correlation_id or str(uuid4())
+        )
         dto = OrderBookDTO.from_payload(payload)
         book = map_orderbook(symbol, dto)
         if not book.bids or not book.asks:
