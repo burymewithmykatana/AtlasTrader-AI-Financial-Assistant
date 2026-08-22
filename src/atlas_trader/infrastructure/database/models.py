@@ -4,13 +4,14 @@ Trading tables are introduced with the phases that own their behavior. This migr
 starts market discovery and the immutable system-event audit stream.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -82,6 +83,25 @@ class SystemEventRecord(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
+class RiskStateRecord(Base):
+    __tablename__ = "risk_state"
+
+    account_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    system_state: Mapped[str] = mapped_column(String(16), nullable=False, default="enabled")
+    trading_day: Mapped[date] = mapped_column(Date, nullable=False)
+    starting_equity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(
+        Numeric(36, 18), nullable=False, default=Decimal("0")
+    )
+    peak_equity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    drawdown: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False, default=Decimal("0"))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_positions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
 

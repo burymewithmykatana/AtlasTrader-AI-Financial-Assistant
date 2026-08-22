@@ -1,22 +1,19 @@
 from decimal import Decimal
 from typing import Protocol
 
-from pydantic import Field
-
-from atlas_trader.domain.metadata import Metadata
-from atlas_trader.domain.models.base import ZERO, DomainModel
-from atlas_trader.domain.models.signal import Signal
-
-
-class RiskDecision(DomainModel):
-    approved: bool
-    reasons: tuple[str, ...] = ()
-    requested_size: Decimal = Field(ge=ZERO)
-    approved_size: Decimal = Field(ge=ZERO)
-    metadata: Metadata = Field(default_factory=dict)
+from atlas_trader.domain.models.risk import RiskContext, RiskState
 
 
 class RiskRule(Protocol):
-    name: str
+    @property
+    def name(self) -> str: ...
 
-    async def evaluate(self, signal: Signal, requested_size: Decimal) -> RiskDecision: ...
+    def evaluate(
+        self, requested_size: Decimal, context: RiskContext, state: RiskState
+    ) -> str | None: ...
+
+
+class RiskStateRepository(Protocol):
+    async def get(self, account_id: str) -> RiskState | None: ...
+
+    async def save(self, state: RiskState) -> None: ...

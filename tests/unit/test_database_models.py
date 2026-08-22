@@ -5,7 +5,12 @@ from sqlalchemy import Numeric, Table, UniqueConstraint
 from sqlalchemy.dialects.postgresql import insert
 
 from atlas_trader.domain.metadata import Metadata
-from atlas_trader.infrastructure.database.models import CandleRecord, MarketRecord, SignalRecord
+from atlas_trader.infrastructure.database.models import (
+    CandleRecord,
+    MarketRecord,
+    RiskStateRecord,
+    SignalRecord,
+)
 from atlas_trader.infrastructure.database.repositories.common import (
     decode_metadata,
     encode_metadata,
@@ -74,3 +79,10 @@ def test_jsonb_orm_inserts_use_non_reserved_metadata_attribute() -> None:
 
     assert "metadata" in str(market_statement)
     assert "metadata" in str(signal_statement)
+
+
+def test_risk_state_financial_columns_are_numeric() -> None:
+    table = cast(Table, RiskStateRecord.__table__)
+
+    for name in ("starting_equity", "realized_pnl", "peak_equity", "drawdown"):
+        assert isinstance(table.c[name].type, Numeric)
