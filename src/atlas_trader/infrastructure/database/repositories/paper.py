@@ -67,6 +67,26 @@ class SqlAlchemyPaperPortfolioRepository:
         )
         return None if record is None else self._fill(record)
 
+    async def list_balances(self, account_id: str) -> list[PaperBalance]:
+        records = await self._session.scalars(
+            select(PaperBalanceRecord).where(PaperBalanceRecord.account_id == account_id)
+        )
+        return [self._balance(record) for record in records]
+
+    async def list_positions(self, account_id: str) -> list[PaperPosition]:
+        records = await self._session.scalars(
+            select(PaperPositionRecord).where(PaperPositionRecord.account_id == account_id)
+        )
+        return [self._position(record) for record in records]
+
+    async def list_fills(self, account_id: str) -> list[PaperFill]:
+        records = await self._session.scalars(
+            select(PaperFillRecord)
+            .where(PaperFillRecord.account_id == account_id)
+            .order_by(PaperFillRecord.executed_at, PaperFillRecord.id)
+        )
+        return [self._fill(record) for record in records]
+
     async def apply_execution(
         self,
         intent: OrderIntent,

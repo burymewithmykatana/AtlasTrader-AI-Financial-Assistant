@@ -35,3 +35,7 @@ class PaperExecutionRejectedError(AtlasTraderError):
 
 class ReconciliationError(AtlasTraderError):
     """Persisted PAPER execution state is internally inconsistent."""
+
+
+class InvalidSystemStateTransitionError(AtlasTraderError):
+    """An operator requested a prohibited system-state transition."""

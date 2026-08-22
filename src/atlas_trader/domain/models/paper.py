@@ -71,3 +71,11 @@ class PaperExecutionResult(DomainModel):
     position: PaperPosition
     snapshot: PaperPortfolioSnapshot
     created: bool
+
+
+class ReconciliationReport(DomainModel):
+    account_id: str
+    consistent: bool
+    anomalies: tuple[str, ...] = ()
+    fill_count: int = Field(ge=0)
+    checked_at: AwareDatetime

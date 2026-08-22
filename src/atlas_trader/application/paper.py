@@ -4,9 +4,11 @@ from decimal import Decimal
 
 from atlas_trader.domain.enums.execution_mode import ExecutionMode
 from atlas_trader.domain.enums.order_side import OrderSide
+from atlas_trader.domain.enums.system_state import SystemState
 from atlas_trader.domain.exceptions import PaperExecutionRejectedError
 from atlas_trader.domain.interfaces.orders import OrderIntentRepository
 from atlas_trader.domain.interfaces.paper import PaperPortfolioRepository
+from atlas_trader.domain.interfaces.risk import RiskStateRepository
 from atlas_trader.domain.models.base import ZERO
 from atlas_trader.domain.models.market import Market, Ticker
 from atlas_trader.domain.models.order import OrderIntent, OrderIntentStatus
@@ -26,6 +28,7 @@ class PaperExecutionService:
         self,
         intents: OrderIntentRepository,
         portfolio: PaperPortfolioRepository,
+        risk_states: RiskStateRepository,
         *,
         fee_rate: Decimal,
         slippage_bps: Decimal,
@@ -34,6 +37,7 @@ class PaperExecutionService:
             raise ValueError("paper fee and slippage must be non-negative")
         self._intents = intents
         self._portfolio = portfolio
+        self._risk_states = risk_states
         self._fee_rate = fee_rate
         self._slippage_bps = slippage_bps
 
@@ -52,6 +56,9 @@ class PaperExecutionService:
         existing_fill = await self._portfolio.get_fill_for_intent(intent.id)
         if existing_fill is not None:
             return await self._reload_result(existing_fill, market)
+        risk_state = await self._risk_states.get(account_id)
+        if risk_state is None or risk_state.system_state is not SystemState.ENABLED:
+            raise PaperExecutionRejectedError("system state blocks paper execution")
         if intent.execution_mode is not ExecutionMode.PAPER:
             raise PaperExecutionRejectedError("paper engine accepts PAPER intents only")
         if intent.status is not OrderIntentStatus.APPROVED or not intent.risk_decision.approved:

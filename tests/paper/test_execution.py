@@ -8,6 +8,7 @@ from atlas_trader.application.paper import PaperExecutionService
 from atlas_trader.domain.enums.execution_mode import ExecutionMode
 from atlas_trader.domain.enums.order_side import OrderSide
 from atlas_trader.domain.enums.order_type import OrderType
+from atlas_trader.domain.enums.system_state import SystemState
 from atlas_trader.domain.exceptions import PaperExecutionRejectedError
 from atlas_trader.domain.models.market import Market, Ticker
 from atlas_trader.domain.models.order import (
@@ -21,9 +22,28 @@ from atlas_trader.domain.models.paper import (
     PaperPortfolioSnapshot,
     PaperPosition,
 )
-from atlas_trader.domain.models.risk import RiskDecision
+from atlas_trader.domain.models.risk import RiskDecision, RiskState
 
 NOW = datetime(2026, 8, 23, 12, tzinfo=UTC)
+
+
+class MemoryRiskStates:
+    def __init__(self, system_state: SystemState = SystemState.ENABLED) -> None:
+        self.value = RiskState(
+            account_id="paper:default",
+            system_state=system_state,
+            trading_day=NOW.date(),
+            starting_equity=Decimal("1000"),
+            peak_equity=Decimal("1000"),
+            updated_at=NOW,
+        )
+
+    async def get(self, account_id: str) -> RiskState | None:
+        assert account_id == self.value.account_id
+        return self.value
+
+    async def save(self, state: RiskState) -> None:
+        self.value = state
 
 
 class MemoryIntents:
@@ -69,6 +89,23 @@ class MemoryPortfolio:
 
     async def get_fill_for_intent(self, intent_id: UUID) -> PaperFill | None:
         return self.fills.get(intent_id)
+
+    async def list_balances(self, account_id: str) -> list[PaperBalance]:
+        return [
+            balance
+            for (stored_account, _), balance in self.balances.items()
+            if stored_account == account_id
+        ]
+
+    async def list_positions(self, account_id: str) -> list[PaperPosition]:
+        return [
+            position
+            for (stored_account, _, _), position in self.positions.items()
+            if stored_account == account_id
+        ]
+
+    async def list_fills(self, account_id: str) -> list[PaperFill]:
+        return [fill for fill in self.fills.values() if fill.account_id == account_id]
 
     async def apply_execution(
         self,
@@ -164,7 +201,11 @@ async def test_buy_applies_adverse_slippage_and_fee_with_decimal_accounting() ->
     order = intent(OrderSide.BUY)
     intents.values[order.id] = order
     service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0.01"), slippage_bps=Decimal("100")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0.01"),
+        slippage_bps=Decimal("100"),
     )
 
     result = await service.execute(
@@ -185,7 +226,11 @@ async def test_profitable_sell_updates_realized_pnl_and_cash() -> None:
     buy = intent(OrderSide.BUY)
     intents.values[buy.id] = buy
     service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0.01"), slippage_bps=Decimal("0")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0.01"),
+        slippage_bps=Decimal("0"),
     )
     await service.execute(buy, market(), ticker("100"), account_id="paper:default", now=NOW)
     sell = intent(OrderSide.SELL)
@@ -205,7 +250,11 @@ async def test_profitable_sell_updates_realized_pnl_and_cash() -> None:
 async def test_loss_trade_is_recorded() -> None:
     intents, portfolio = await setup()
     service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0"), slippage_bps=Decimal("0")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0"),
+        slippage_bps=Decimal("0"),
     )
     buy = intent(OrderSide.BUY)
     intents.values[buy.id] = buy
@@ -224,7 +273,11 @@ async def test_loss_trade_is_recorded() -> None:
 async def test_insufficient_cash_and_position_are_rejected_without_fill() -> None:
     intents, portfolio = await setup(cash="50")
     service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0"), slippage_bps=Decimal("0")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0"),
+        slippage_bps=Decimal("0"),
     )
     buy = intent(OrderSide.BUY)
     intents.values[buy.id] = buy
@@ -244,13 +297,21 @@ async def test_duplicate_execution_and_service_restart_reuse_fill_and_state() ->
     order = intent(OrderSide.BUY)
     intents.values[order.id] = order
     first_service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0"), slippage_bps=Decimal("0")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0"),
+        slippage_bps=Decimal("0"),
     )
     first = await first_service.execute(
         order, market(), ticker("100"), account_id="paper:default", now=NOW
     )
     restarted_service = PaperExecutionService(
-        intents, portfolio, fee_rate=Decimal("0"), slippage_bps=Decimal("0")
+        intents,
+        portfolio,
+        MemoryRiskStates(),
+        fee_rate=Decimal("0"),
+        slippage_bps=Decimal("0"),
     )
 
     retry = await restarted_service.execute(
@@ -262,3 +323,24 @@ async def test_duplicate_execution_and_service_restart_reuse_fill_and_state() ->
     assert retry.fill.id == first.fill.id
     assert retry.balance.available == Decimal("900")
     assert len(portfolio.fills) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_state", [SystemState.PAUSED, SystemState.KILLED])
+async def test_pause_or_kill_after_approval_blocks_pending_execution(
+    blocked_state: SystemState,
+) -> None:
+    intents, portfolio = await setup()
+    order = intent(OrderSide.BUY)
+    intents.values[order.id] = order
+    service = PaperExecutionService(
+        intents,
+        portfolio,
+        MemoryRiskStates(blocked_state),
+        fee_rate=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    with pytest.raises(PaperExecutionRejectedError, match="system state blocks"):
+        await service.execute(order, market(), ticker("100"), account_id="paper:default", now=NOW)
+    assert portfolio.fills == {}
