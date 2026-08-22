@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -202,6 +203,78 @@ class OrderIntentRecord(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PaperBalanceRecord(Base):
+    __tablename__ = "paper_balances"
+
+    account_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    asset: Mapped[str] = mapped_column(String(32), primary_key=True)
+    available: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PaperPositionRecord(Base):
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        UniqueConstraint("account_id", "exchange", "symbol", name="uq_paper_positions_identity"),
+        CheckConstraint("quantity >= 0", name="ck_paper_position_quantity_nonnegative"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    exchange: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    base_asset: Mapped[str] = mapped_column(String(32), nullable=False)
+    quote_asset: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    average_cost: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PaperFillRecord(Base):
+    __tablename__ = "paper_fills"
+    __table_args__ = (
+        UniqueConstraint("intent_id", name="uq_paper_fills_intent"),
+        UniqueConstraint("execution_event_id", name="uq_paper_fills_execution_event"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    execution_event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    intent_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("order_intents.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    client_order_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    exchange: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    notional: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    fee: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    fee_asset: Mapped[str] = mapped_column(String(32), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    assumptions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class PaperPortfolioSnapshotRecord(Base):
+    __tablename__ = "paper_portfolio_snapshots"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    quote_asset: Mapped[str] = mapped_column(String(32), nullable=False)
+    cash: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    positions_value: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    total_equity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
 
 class BacktestRunRecord(Base):

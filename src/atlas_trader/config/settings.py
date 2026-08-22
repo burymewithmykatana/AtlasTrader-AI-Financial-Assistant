@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     max_spread_bps: int = Field(default=40, ge=0)
     cooldown_minutes: int = Field(default=60, ge=0)
     stale_data_seconds: int = Field(default=90, ge=1)
+    paper_fee_rate: Decimal = Field(default=Decimal("0.001"), ge=0, le=1)
+    paper_slippage_bps: Decimal = Field(default=Decimal("5"), ge=0, le=10000)
+    paper_account_id: str = "paper:default"
+    paper_quote_asset: str = "USDT"
+    paper_initial_balance: Decimal = Field(default=Decimal("10000"), gt=0)
 
     @field_validator("log_level", mode="before")
     @classmethod
