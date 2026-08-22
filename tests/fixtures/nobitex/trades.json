@@ -1,0 +1,7 @@
+{
+  "status": "ok",
+  "trades": [
+    {"time": 1787385600123, "price": "65000.12", "volume": "0.002", "type": "buy"},
+    {"time": 1787385599123, "price": "65000.10", "volume": "0.001", "type": "sell"}
+  ]
+}

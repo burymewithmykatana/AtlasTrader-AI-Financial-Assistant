@@ -1,0 +1,1 @@
+"""Exchange-independent trading domain."""

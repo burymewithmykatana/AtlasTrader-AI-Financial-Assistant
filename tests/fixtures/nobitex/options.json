@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "nobitex": {
+    "minOrders": {"usdt": "10", "irt": "3000000"},
+    "amountPrecisions": {
+      "BTCUSDT": "0.000001",
+      "XAUTUSDT": "0.0001",
+      "ABCUSDT": "0.01"
+    },
+    "pricePrecisions": {
+      "BTCUSDT": "0.01",
+      "XAUTUSDT": "0.01",
+      "ABCUSDT": "0.0001"
+    }
+  },
+  "coins": [
+    {"coin": "btc", "name": "Bitcoin", "defaultNetwork": "BTC"},
+    {"coin": "xaut", "name": "Tether Gold", "defaultNetwork": "ETH"},
+    {"coin": "abc", "name": "Unknown Asset", "defaultNetwork": "ABC"},
+    {"coin": "usdt", "name": "Tether", "defaultNetwork": "TRX"},
+    {"coin": "irt", "name": "Iranian Toman", "defaultNetwork": "FIAT_MONEY"}
+  ]
+}
