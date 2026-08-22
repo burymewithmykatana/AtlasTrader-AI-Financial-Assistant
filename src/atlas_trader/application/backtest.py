@@ -1,6 +1,9 @@
 """Deterministic, long-only, single-market backtesting."""
 
+import hashlib
+import json
 import os
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, localcontext
 from uuid import uuid4
@@ -11,6 +14,7 @@ from atlas_trader.domain.enums.signal_action import SignalAction
 from atlas_trader.domain.interfaces.strategy import Strategy
 from atlas_trader.domain.models.backtest import (
     BacktestConfig,
+    BacktestDataset,
     BacktestMetrics,
     BacktestResult,
     BacktestTrade,
@@ -30,6 +34,35 @@ def persisted_decimal(value: Decimal) -> Decimal:
     with localcontext() as context:
         context.prec = 60
         return value.quantize(PERSISTED_QUANTUM)
+
+
+def candle_dataset_fingerprint(candles: Sequence[Candle]) -> str:
+    canonical = [
+        [
+            candle.exchange,
+            candle.symbol,
+            candle.timeframe.value,
+            _canonical_datetime(candle.timestamp),
+            _canonical_datetime(candle.close_time) if candle.close_time is not None else None,
+            _canonical_decimal(candle.open),
+            _canonical_decimal(candle.high),
+            _canonical_decimal(candle.low),
+            _canonical_decimal(candle.close),
+            _canonical_decimal(candle.volume),
+        ]
+        for candle in candles
+    ]
+    encoded = json.dumps(canonical, ensure_ascii=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _canonical_datetime(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _canonical_decimal(value: Decimal) -> str:
+    normalized = value.normalize()
+    return "0" if normalized == ZERO else format(normalized, "f")
 
 
 class BacktestEngine:
@@ -144,6 +177,12 @@ class BacktestEngine:
             strategy_version=strategy.version,
             strategy_parameters=dict(parameters),
             config=effective_config,
+            dataset=BacktestDataset(
+                candle_count=len(ordered),
+                effective_start_time=ordered[0].timestamp,
+                effective_end_time=ordered[-1].timestamp,
+                fingerprint=candle_dataset_fingerprint(ordered),
+            ),
             metrics=metrics,
             trades=tuple(trades),
             execution_assumptions={
@@ -151,9 +190,10 @@ class BacktestEngine:
                 "signal_execution_delay_candles": 1,
                 "portfolio": "spot_long_only_single_market",
                 "fee_application": "each_fill_notional",
+                "fee_model": "percentage_of_fill_notional",
                 "slippage": "fixed_basis_points_adverse",
             },
-            code_version=os.getenv("GIT_SHA"),
+            code_version=os.getenv("GIT_SHA") or "unavailable",
             started_at=started_at,
             completed_at=datetime.now(UTC),
         )

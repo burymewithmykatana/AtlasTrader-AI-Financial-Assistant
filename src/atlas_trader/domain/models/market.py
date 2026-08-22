@@ -32,6 +32,23 @@ class Market(DomainModel):
     active: bool = True
 
 
+class MarketDiscoverySnapshot(DomainModel):
+    exchange: str = Field(min_length=1)
+    markets: tuple[Market, ...]
+    complete: bool
+    allow_empty_deactivation: bool = False
+
+    @model_validator(mode="after")
+    def validate_snapshot_policy(self) -> "MarketDiscoverySnapshot":
+        if any(market.exchange != self.exchange for market in self.markets):
+            raise ValueError("all discovered markets must match the snapshot exchange")
+        if self.allow_empty_deactivation and (not self.complete or self.markets):
+            raise ValueError("empty deactivation is valid only for a complete empty snapshot")
+        if self.complete and not self.markets and not self.allow_empty_deactivation:
+            raise ValueError("complete empty snapshots require explicit deactivation approval")
+        return self
+
+
 class Ticker(DomainModel):
     exchange: str
     symbol: str

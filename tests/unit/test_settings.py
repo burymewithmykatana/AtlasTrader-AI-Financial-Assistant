@@ -23,7 +23,8 @@ def test_live_flag_cannot_be_armed_in_a_non_live_mode() -> None:
         Settings(trading_mode=ExecutionMode.TESTNET, live_trading_enabled=True, _env_file=None)
 
 
-def test_database_url_escapes_credentials() -> None:
+def test_database_url_escapes_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     settings = Settings(postgres_user="user@local", postgres_password="p/a:ss", _env_file=None)
 
     assert "user%40local:p%2Fa%3Ass" in settings.sqlalchemy_database_url
@@ -48,6 +49,7 @@ def test_log_level_is_normalized_and_validated() -> None:
         Settings(log_level="verbose", _env_file=None)
 
 
-def test_production_rejects_default_database_password() -> None:
+def test_production_rejects_default_database_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(ValidationError, match="non-default PostgreSQL password"):
         Settings(app_env="production", postgres_password="change-me", _env_file=None)

@@ -1,0 +1,7 @@
+{
+  "status": "ok",
+  "lastUpdate": 1787385600000,
+  "lastTradePrice": "65000.12",
+  "bids": [["not-a-number", "0.5"]],
+  "asks": [["65000.13", ""]]
+}

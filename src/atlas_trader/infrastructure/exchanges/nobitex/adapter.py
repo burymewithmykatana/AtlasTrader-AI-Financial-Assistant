@@ -16,7 +16,7 @@ from atlas_trader.domain.exceptions import (
     ExchangeRequestError,
 )
 from atlas_trader.domain.models.candle import Candle, CandlePage
-from atlas_trader.domain.models.market import Market, OrderBook, Ticker
+from atlas_trader.domain.models.market import Market, MarketDiscoverySnapshot, OrderBook, Ticker
 from atlas_trader.domain.models.order import ExchangeOrder, OrderIntent
 from atlas_trader.domain.models.portfolio import Balance
 from atlas_trader.domain.models.trade import PublicTrade, Trade
@@ -28,7 +28,6 @@ from atlas_trader.infrastructure.exchanges.nobitex.dto import (
     TradesResponseDTO,
     UdfHistoryDTO,
 )
-from atlas_trader.infrastructure.exchanges.nobitex.errors import NobitexResponseError
 from atlas_trader.infrastructure.exchanges.nobitex.mapper import (
     map_market,
     map_orderbook,
@@ -54,7 +53,7 @@ class NobitexPublicAdapter:
         }
         self._logger = structlog.get_logger()
 
-    async def discover_markets(self, *, correlation_id: str) -> list[Market]:
+    async def discover_markets(self, *, correlation_id: str) -> MarketDiscoverySnapshot:
         options = OptionsResponseDTO.from_payload(
             await self._client.get_options(correlation_id=correlation_id)
         )
@@ -76,20 +75,19 @@ class NobitexPublicAdapter:
                     correlation_id=correlation_id,
                     exception_type=type(exc).__name__,
                 )
-        if rejected_symbols:
-            raise NobitexResponseError(
-                "Nobitex market metadata could not be mapped consistently; reconciliation aborted"
-            )
-        return markets
+        return MarketDiscoverySnapshot(
+            exchange=self.name,
+            markets=tuple(markets),
+            complete=not rejected_symbols,
+        )
 
     async def get_markets(self) -> list[Market]:
-        return await self.discover_markets(correlation_id=str(uuid4()))
+        snapshot = await self.discover_markets(correlation_id=str(uuid4()))
+        return list(snapshot.markets)
 
     async def get_ticker(self, symbol: str) -> Ticker:
         payload = await self._client.get_orderbook(symbol, correlation_id=str(uuid4()))
-        dto = OrderBookDTO.model_validate(payload)
-        if dto.status != "ok":
-            raise ExchangeRequestError(f"Nobitex order book request failed for {symbol}")
+        dto = OrderBookDTO.from_payload(payload)
         book = map_orderbook(symbol, dto)
         if not book.bids or not book.asks:
             raise ExchangeRequestError(f"Nobitex order book for {symbol} has no best bid/ask")
@@ -107,9 +105,7 @@ class NobitexPublicAdapter:
         if limit < 1:
             raise ExchangeRequestError("order-book limit must be positive")
         payload = await self._client.get_orderbook(symbol, correlation_id=str(uuid4()))
-        dto = OrderBookDTO.model_validate(payload)
-        if dto.status != "ok":
-            raise ExchangeRequestError(f"Nobitex order book request failed for {symbol}")
+        dto = OrderBookDTO.from_payload(payload)
         book = map_orderbook(symbol, dto)
         return book.model_copy(update={"bids": book.bids[:limit], "asks": book.asks[:limit]})
 

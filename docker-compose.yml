@@ -16,7 +16,10 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
   application:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unavailable}
     init: true
     env_file:
       - path: .env

@@ -2,12 +2,17 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
-from atlas_trader.application.market_data import CandleSyncService, MarketDiscoveryService
+from atlas_trader.application.market_data import (
+    CandleGapKind,
+    CandleSyncService,
+    MarketDiscoveryService,
+)
 from atlas_trader.domain.enums.market_status import MarketStatus
 from atlas_trader.domain.enums.timeframe import Timeframe
 from atlas_trader.domain.models.candle import Candle, CandlePage
-from atlas_trader.domain.models.market import Market
+from atlas_trader.domain.models.market import Market, MarketDiscoverySnapshot
 from atlas_trader.infrastructure.database.repositories.common import UpsertStats
 
 
@@ -43,24 +48,31 @@ def candle(open_time: datetime, close: str = "100") -> Candle:
 class FakeMarketAdapter:
     name = "nobitex"
 
-    def __init__(self, discovered: list[Market]) -> None:
+    def __init__(self, discovered: list[Market], *, complete: bool = True) -> None:
         self.discovered = discovered
+        self.complete = complete
 
-    async def discover_markets(self, *, correlation_id: str) -> list[Market]:
-        return self.discovered
+    async def discover_markets(self, *, correlation_id: str) -> MarketDiscoverySnapshot:
+        return MarketDiscoverySnapshot(
+            exchange=self.name,
+            markets=tuple(self.discovered),
+            complete=self.complete,
+        )
 
 
 class MemoryMarketRepository:
     def __init__(self) -> None:
         self.records: dict[str, Market] = {}
 
-    async def reconcile(self, exchange: str, markets: list[Market]) -> UpsertStats:
+    async def reconcile(self, snapshot: MarketDiscoverySnapshot) -> UpsertStats:
+        markets = list(snapshot.markets)
         existing = set(self.records)
         current = {item.symbol for item in markets}
-        for symbol in existing - current:
-            self.records[symbol] = self.records[symbol].model_copy(
-                update={"active": False, "status": MarketStatus.INACTIVE}
-            )
+        if snapshot.complete:
+            for symbol in existing - current:
+                self.records[symbol] = self.records[symbol].model_copy(
+                    update={"active": False, "status": MarketStatus.INACTIVE}
+                )
         for item in markets:
             self.records[item.symbol] = item
         return UpsertStats(
@@ -86,11 +98,68 @@ async def test_market_discovery_is_dynamic_and_missing_markets_are_deactivated()
     assert repository.records["ABCUSDT"].status is MarketStatus.INACTIVE
 
 
+@pytest.mark.asyncio
+async def test_incomplete_market_snapshot_does_not_deactivate_unseen_markets() -> None:
+    repository = MemoryMarketRepository()
+    await MarketDiscoveryService(
+        FakeMarketAdapter([market("BTCUSDT"), market("ABCUSDT", "ABC")]), repository
+    ).run(correlation_id="cycle-1")
+
+    partial_result = await MarketDiscoveryService(
+        FakeMarketAdapter([market("BTCUSDT")], complete=False), repository
+    ).run(correlation_id="cycle-2")
+    await MarketDiscoveryService(FakeMarketAdapter([], complete=False), repository).run(
+        correlation_id="cycle-3"
+    )
+
+    assert repository.records["ABCUSDT"].active is True
+    assert partial_result.complete is False
+
+
+def test_complete_empty_market_snapshot_requires_explicit_policy() -> None:
+    with pytest.raises(ValidationError, match="explicit deactivation approval"):
+        MarketDiscoverySnapshot(exchange="nobitex", markets=(), complete=True)
+
+    approved = MarketDiscoverySnapshot(
+        exchange="nobitex",
+        markets=(),
+        complete=True,
+        allow_empty_deactivation=True,
+    )
+
+    assert approved.allow_empty_deactivation is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_complete_empty_snapshot_deactivates_without_deleting() -> None:
+    repository = MemoryMarketRepository()
+    await repository.reconcile(
+        MarketDiscoverySnapshot(
+            exchange="nobitex",
+            markets=(market("BTCUSDT"),),
+            complete=True,
+        )
+    )
+
+    await repository.reconcile(
+        MarketDiscoverySnapshot(
+            exchange="nobitex",
+            markets=(),
+            complete=True,
+            allow_empty_deactivation=True,
+        )
+    )
+
+    assert set(repository.records) == {"BTCUSDT"}
+    assert repository.records["BTCUSDT"].active is False
+
+
 class FakeCandleAdapter:
     name = "nobitex"
 
-    def __init__(self, pages: list[CandlePage]) -> None:
+    def __init__(self, pages: list[CandlePage], *, page_size: int = 500) -> None:
         self.pages = pages
+        self.maximum_candles_per_page = page_size
         self.requested_pages: list[int] = []
 
     async def get_candle_page(
@@ -187,8 +256,83 @@ def test_gap_detection_reports_exact_missing_count() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     candles = [candle(start), candle(start + timedelta(minutes=3))]
 
-    gaps = CandleSyncService.detect_gaps(candles, Timeframe.ONE_MINUTE)
+    gaps = CandleSyncService.detect_gaps(
+        candles,
+        Timeframe.ONE_MINUTE,
+        start,
+        start + timedelta(minutes=3),
+    )
 
     assert len(gaps) == 1
+    assert gaps[0].kind is CandleGapKind.INTERNAL
     assert gaps[0].expected_open_time == start + timedelta(minutes=1)
     assert gaps[0].missing_candles == 2
+
+
+@pytest.mark.parametrize(
+    ("minute_offsets", "expected"),
+    [
+        ([1, 2, 3, 4], [(CandleGapKind.LEADING, 1)]),
+        ([0, 1, 2, 3], [(CandleGapKind.TRAILING, 1)]),
+        (
+            [1, 3],
+            [
+                (CandleGapKind.LEADING, 1),
+                (CandleGapKind.INTERNAL, 1),
+                (CandleGapKind.TRAILING, 1),
+            ],
+        ),
+        ([0, 1, 2, 3, 4], []),
+        ([], [(CandleGapKind.EMPTY, 5)]),
+    ],
+)
+def test_range_aware_gap_detection(
+    minute_offsets: list[int], expected: list[tuple[CandleGapKind, int]]
+) -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    values = [candle(start + timedelta(minutes=offset)) for offset in minute_offsets]
+
+    gaps = CandleSyncService.detect_gaps(
+        values,
+        Timeframe.ONE_MINUTE,
+        start,
+        start + timedelta(minutes=4),
+    )
+
+    assert [(gap.kind, gap.missing_candles) for gap in gaps] == expected
+
+
+@pytest.mark.asyncio
+async def test_sync_uses_adapter_specific_non_500_page_size() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    adapter = FakeCandleAdapter(
+        [
+            CandlePage(
+                candles=(candle(start), candle(start + timedelta(minutes=1))),
+                page=1,
+                has_more=True,
+            ),
+            CandlePage(
+                candles=(
+                    candle(start + timedelta(minutes=2)),
+                    candle(start + timedelta(minutes=3)),
+                ),
+                page=2,
+                has_more=False,
+            ),
+        ],
+        page_size=2,
+    )
+
+    result = await CandleSyncService(adapter, MemoryCandleRepository()).sync(
+        exchange="nobitex",
+        symbol="BTCUSDT",
+        timeframe=Timeframe.ONE_MINUTE,
+        start=start,
+        end=start + timedelta(minutes=3),
+        correlation_id="cycle-page-size",
+    )
+
+    assert adapter.requested_pages == [1, 2]
+    assert result.received == 4
+    assert result.gaps == ()

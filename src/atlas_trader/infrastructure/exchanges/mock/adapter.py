@@ -12,7 +12,7 @@ from atlas_trader.domain.exceptions import (
     IdempotencyConflictError,
     InvalidOrderStateError,
 )
-from atlas_trader.domain.models.candle import Candle
+from atlas_trader.domain.models.candle import Candle, CandlePage
 from atlas_trader.domain.models.market import Market, OrderBook, OrderBookLevel, Ticker
 from atlas_trader.domain.models.order import ExchangeOrder, OrderIntent, OrderStatus
 from atlas_trader.domain.models.portfolio import Balance
@@ -27,6 +27,7 @@ class MockExchangeAdapter:
     """
 
     name = "mock"
+    maximum_candles_per_page = 1000
 
     def __init__(self) -> None:
         self._markets: dict[str, Market] = {}
@@ -94,6 +95,26 @@ class MockExchangeAdapter:
             for candle in self._candles.get((symbol, timeframe), [])
             if start <= candle.timestamp <= end
         ]
+
+    async def get_candle_page(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+        *,
+        page: int,
+        correlation_id: str,
+    ) -> CandlePage:
+        del correlation_id
+        candles = await self.get_candles(symbol, timeframe, start, end)
+        offset = (page - 1) * self.maximum_candles_per_page
+        values = tuple(candles[offset : offset + self.maximum_candles_per_page])
+        return CandlePage(
+            candles=values,
+            page=page,
+            has_more=offset + len(values) < len(candles),
+        )
 
     async def get_balances(self) -> list[Balance]:
         return sorted(self._balances.values(), key=lambda balance: balance.asset)

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas_trader.domain.enums.asset_class import AssetClass
 from atlas_trader.domain.enums.market_status import MarketStatus
-from atlas_trader.domain.models.market import Market
+from atlas_trader.domain.models.market import Market, MarketDiscoverySnapshot
 from atlas_trader.infrastructure.database.models import MarketRecord
 from atlas_trader.infrastructure.database.repositories.common import UpsertStats
 
@@ -15,7 +15,9 @@ class SqlAlchemyMarketRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def reconcile(self, exchange: str, markets: list[Market]) -> UpsertStats:
+    async def reconcile(self, snapshot: MarketDiscoverySnapshot) -> UpsertStats:
+        exchange = snapshot.exchange
+        markets = list(snapshot.markets)
         symbols = {market.symbol for market in markets}
         existing = set(
             await self._session.scalars(
@@ -37,33 +39,36 @@ class SqlAlchemyMarketRepository:
                 "status": MarketStatus.ACTIVE.value,
                 "base_asset_class": market.base_asset_class.value,
                 "quote_asset_class": market.quote_asset_class.value,
-                "metadata": market.metadata,
+                "metadata_": market.metadata,
                 "active": True,
                 "last_seen_at": now,
                 "updated_at": now,
             }
             statement = insert(MarketRecord).values(**values)
+            update_values: dict[object, object] = {
+                key: value
+                for key, value in values.items()
+                if key not in {"exchange", "symbol", "metadata_"}
+            }
+            update_values[MarketRecord.metadata_] = market.metadata
             await self._session.execute(
                 statement.on_conflict_do_update(
                     constraint="uq_markets_exchange_symbol",
-                    set_={
-                        key: value
-                        for key, value in values.items()
-                        if key not in {"exchange", "symbol"}
-                    },
+                    set_=update_values,
                 )
             )
 
-        deactivate = update(MarketRecord).where(MarketRecord.exchange == exchange)
-        if symbols:
-            deactivate = deactivate.where(MarketRecord.symbol.not_in(symbols))
-        await self._session.execute(
-            deactivate.values(
-                active=False,
-                status=MarketStatus.INACTIVE.value,
-                updated_at=now,
+        if snapshot.complete:
+            deactivate = update(MarketRecord).where(MarketRecord.exchange == exchange)
+            if symbols:
+                deactivate = deactivate.where(MarketRecord.symbol.not_in(symbols))
+            await self._session.execute(
+                deactivate.values(
+                    active=False,
+                    status=MarketStatus.INACTIVE.value,
+                    updated_at=now,
+                )
             )
-        )
         return UpsertStats(
             inserted=len(symbols - existing),
             updated=len(symbols & existing),

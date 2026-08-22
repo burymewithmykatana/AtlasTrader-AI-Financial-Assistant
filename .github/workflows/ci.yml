@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
@@ -26,6 +30,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://atlas:ci-only-password@localhost:5432/atlas_trader
+      GIT_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,6 +45,7 @@ jobs:
       - run: python -m pytest
       - run: alembic upgrade head
       - run: alembic check
+      - run: docker compose config --quiet
       - name: Reject committed environment files
         run: test -z "$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)"
 
@@ -47,4 +53,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t atlas-trader:ci .
+      - run: docker build --build-arg GIT_SHA=${{ github.sha }} -t atlas-trader:ci .

@@ -22,7 +22,7 @@ class SqlAlchemySignalRepository:
             "score": signal.score,
             "reference_price": signal.reference_price,
             "stop_price": signal.stop_price,
-            "metadata": encode_metadata(signal.metadata),
+            "metadata_": encode_metadata(signal.metadata),
         }
         statement = (
             insert(SignalRecord)

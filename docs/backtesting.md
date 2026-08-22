@@ -11,8 +11,10 @@ the strategy only `candles[:N+1]`, preventing future values from influencing a h
 decision.
 
 Every result stores run ID/status, strategy name/version/parameters, market/timeframe and
-period, initial capital, fee/slippage settings, execution assumptions, code SHA when
-available, ordered trades, and metrics. Metrics include ending equity, absolute/percentage
+period, initial capital, explicit fee/slippage models and values, execution assumptions,
+code SHA (or `unavailable` locally), ordered trades, and metrics. It also stores the exact
+candle count, effective first/last timestamps, and a canonical SHA-256 fingerprint over the
+ordered candle identity, times, and Decimal OHLCV values. Metrics include ending equity, absolute/percentage
 return, entries/exits, completed trades, wins/losses/win rate, gross profit/loss, profit
 factor, maximum drawdown amount/percentage, fees, unrealized PnL, buy-and-hold return, and
 exposure. Sharpe is intentionally omitted because no return sampling/risk-free-rate
@@ -30,3 +32,8 @@ atlas-trader backtest --symbol BTCUSDT --timeframe 15m \
 `GET /backtests/{id}` and `GET /backtests` return persisted runs. Identical data,
 parameters, and engine version reproduce signals, fills, and metrics; run IDs and wall-clock
 timestamps are intentionally unique audit metadata.
+
+The fingerprint is representation-stable: equivalent Decimal values and UTC timestamps
+produce the same canonical input. Changing any included candle changes the fingerprint.
+Pre-hardening database rows are explicitly marked `unavailable:pre-hardening`; new runs
+always receive a `sha256:` fingerprint.

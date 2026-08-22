@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from atlas_trader.domain.enums.backtest import BacktestExecutionModel, BacktestStatus
 from atlas_trader.domain.enums.order_side import OrderSide
@@ -56,6 +56,25 @@ class BacktestMetrics(DomainModel):
     exposure_pct: Decimal = Field(ge=ZERO, le=Decimal("100"))
 
 
+class BacktestDataset(DomainModel):
+    candle_count: int = Field(ge=0)
+    effective_start_time: AwareDatetime
+    effective_end_time: AwareDatetime
+    fingerprint: str = Field(min_length=1, max_length=96)
+
+    @model_validator(mode="after")
+    def validate_reproducibility_metadata(self) -> "BacktestDataset":
+        if self.effective_end_time < self.effective_start_time:
+            raise ValueError("dataset end cannot be before its start")
+        if self.candle_count == 0 and not self.fingerprint.startswith("unavailable:"):
+            raise ValueError("empty legacy datasets require an unavailable fingerprint")
+        if self.candle_count > 0 and (
+            not self.fingerprint.startswith("sha256:") or len(self.fingerprint) != 71
+        ):
+            raise ValueError("non-empty datasets require a SHA-256 fingerprint")
+        return self
+
+
 class BacktestResult(DomainModel):
     id: UUID
     status: BacktestStatus
@@ -63,9 +82,10 @@ class BacktestResult(DomainModel):
     strategy_version: str
     strategy_parameters: Metadata
     config: BacktestConfig
+    dataset: BacktestDataset
     metrics: BacktestMetrics
     trades: tuple[BacktestTrade, ...]
     execution_assumptions: Metadata
-    code_version: str | None = None
+    code_version: str = Field(min_length=1, max_length=64)
     started_at: AwareDatetime
     completed_at: AwareDatetime

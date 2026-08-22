@@ -1,7 +1,7 @@
 """Nobitex-only response DTOs. These never cross the adapter boundary."""
 
-from decimal import Decimal
-from typing import Any, Self
+from decimal import Decimal, DecimalException
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -10,6 +10,22 @@ from atlas_trader.infrastructure.exchanges.nobitex.errors import NobitexResponse
 
 class NobitexDTO(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+
+def parse_vendor_decimal(value: object, field_name: str) -> Decimal:
+    """Convert vendor numerics without leaking Decimal implementation exceptions."""
+    if value is None or isinstance(value, bool):
+        raise ValueError(f"invalid decimal value for {field_name}")
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"invalid decimal value for {field_name}")
+    try:
+        parsed = Decimal(text)
+    except (DecimalException, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid decimal value for {field_name}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"invalid decimal value for {field_name}")
+    return parsed
 
 
 class CoinDTO(NobitexDTO):
@@ -27,8 +43,11 @@ class OptionsDataDTO(NobitexDTO):
     @classmethod
     def parse_decimal_mapping(cls, value: object) -> object:
         if not isinstance(value, dict):
-            return {}
-        return {str(key): Decimal(str(item)) for key, item in value.items()}
+            raise ValueError("precision and minimum-order metadata must be objects")
+        return {
+            str(key): parse_vendor_decimal(item, "options numeric metadata")
+            for key, item in value.items()
+        }
 
 
 class OptionsResponseDTO(NobitexDTO):
@@ -52,24 +71,40 @@ class OptionsResponseDTO(NobitexDTO):
 class OrderBookDTO(NobitexDTO):
     status: str = "ok"
     last_update: int = Field(alias="lastUpdate")
-    last_trade_price: Decimal | None = Field(default=None, alias="lastTradePrice")
+    last_trade_price: Decimal | None = Field(default=None, alias="lastTradePrice", gt=0)
     bids: tuple[tuple[Decimal, Decimal], ...] = ()
     asks: tuple[tuple[Decimal, Decimal], ...] = ()
 
     @field_validator("last_trade_price", mode="before")
     @classmethod
     def parse_optional_decimal(cls, value: object) -> Decimal | None:
-        return None if value in (None, "") else Decimal(str(value))
+        return None if value in (None, "") else parse_vendor_decimal(value, "lastTradePrice")
 
     @field_validator("bids", "asks", mode="before")
     @classmethod
     def parse_levels(cls, value: object) -> tuple[tuple[Decimal, Decimal], ...]:
         if not isinstance(value, list):
-            return ()
+            raise ValueError("order-book levels must be a list")
+        levels: list[tuple[Decimal, Decimal]] = []
+        for level in value:
+            if not isinstance(level, (list, tuple)) or len(level) != 2:
+                raise ValueError("invalid order-book level")
+            price = parse_vendor_decimal(level[0], "order-book price")
+            amount = parse_vendor_decimal(level[1], "order-book amount")
+            if price <= 0 or amount <= 0:
+                raise ValueError("order-book price and amount must be positive")
+            levels.append((price, amount))
+        return tuple(levels)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Self:
         try:
-            return tuple((Decimal(str(level[0])), Decimal(str(level[1]))) for level in value)
-        except (IndexError, TypeError, ValueError) as exc:
-            raise ValueError("invalid order-book level") from exc
+            result = cls.model_validate(payload)
+        except ValidationError as exc:
+            raise NobitexResponseError("invalid /v3/orderbook/{symbol} response") from exc
+        if result.status != "ok":
+            raise NobitexResponseError("order-book endpoint returned a failed status")
+        return result
 
 
 class OrderBooksResponseDTO(NobitexDTO):
@@ -81,10 +116,13 @@ class OrderBooksResponseDTO(NobitexDTO):
         if payload.get("status") != "ok":
             raise NobitexResponseError("/v3/orderbook/all returned a failed status")
         try:
+            raw_books = {key: value for key, value in payload.items() if key != "status"}
+            if any(not isinstance(value, dict) for value in raw_books.values()):
+                raise ValueError("all order-book entries must be objects")
             books = {
                 key: OrderBookDTO.model_validate(value)
-                for key, value in payload.items()
-                if key != "status" and isinstance(value, dict)
+                for key, value in raw_books.items()
+                if isinstance(value, dict)
             }
             result = cls(status=str(payload.get("status", "")), books=books)
         except (ValidationError, ValueError) as exc:
@@ -111,7 +149,7 @@ class UdfHistoryDTO(NobitexDTO):
             return ()
         if not isinstance(value, list):
             raise ValueError("UDF value arrays must be lists")
-        return tuple(Decimal(str(item)) for item in value)
+        return tuple(parse_vendor_decimal(item, "UDF OHLCV") for item in value)
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Self:
@@ -134,14 +172,14 @@ class UdfHistoryDTO(NobitexDTO):
 
 class PublicTradeDTO(NobitexDTO):
     time: int
-    price: Decimal
-    volume: Decimal
-    type: str
+    price: Decimal = Field(gt=0)
+    volume: Decimal = Field(ge=0)
+    type: Literal["buy", "sell"]
 
     @field_validator("price", "volume", mode="before")
     @classmethod
     def parse_decimal(cls, value: object) -> Decimal:
-        return Decimal(str(value))
+        return parse_vendor_decimal(value, "public trade numeric")
 
 
 class TradesResponseDTO(NobitexDTO):

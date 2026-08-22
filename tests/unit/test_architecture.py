@@ -35,3 +35,11 @@ def test_domain_has_no_vendor_specific_nobitex_reference() -> None:
     ]
 
     assert references == []
+
+
+def test_application_market_data_has_no_vendor_page_size_literal() -> None:
+    application_file = (
+        Path(__file__).parents[2] / "src" / "atlas_trader" / "application" / "market_data.py"
+    )
+
+    assert "500" not in application_file.read_text(encoding="utf-8")
