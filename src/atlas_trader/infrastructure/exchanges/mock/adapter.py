@@ -197,13 +197,4 @@ class MockExchangeAdapter:
 
     @staticmethod
     def _execution_signature(intent: OrderIntent) -> tuple[object, ...]:
-        return (
-            intent.exchange,
-            intent.symbol,
-            intent.side,
-            intent.order_type,
-            intent.amount,
-            intent.price,
-            intent.mode,
-            intent.strategy,
-        )
+        return intent.execution_signature()

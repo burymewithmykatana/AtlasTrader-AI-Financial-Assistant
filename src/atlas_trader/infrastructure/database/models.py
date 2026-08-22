@@ -172,6 +172,38 @@ class SignalRecord(Base):
     )
 
 
+class OrderIntentRecord(Base):
+    __tablename__ = "order_intents"
+    __table_args__ = (UniqueConstraint("client_order_id", name="uq_order_intents_client_order_id"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    client_order_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    signal_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("signals.id", ondelete="SET NULL"), nullable=True
+    )
+    exchange: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    requested_quantity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    requested_notional: Mapped[Decimal | None] = mapped_column(Numeric(36, 18), nullable=True)
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(36, 18), nullable=True)
+    reference_price: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
+    execution_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    trading_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    execution_model: Mapped[str] = mapped_column(String(32), nullable=False)
+    strategy: Mapped[str] = mapped_column(String(64), nullable=False)
+    strategy_version: Mapped[str] = mapped_column(String(24), nullable=False)
+    risk_decision: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class BacktestRunRecord(Base):
     __tablename__ = "backtest_runs"
 

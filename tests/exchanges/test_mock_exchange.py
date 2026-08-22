@@ -13,23 +13,36 @@ from atlas_trader.domain.exceptions import (
 )
 from atlas_trader.domain.interfaces.exchange import ExchangeAdapter
 from atlas_trader.domain.models.market import Market, Ticker
-from atlas_trader.domain.models.order import OrderIntent, OrderStatus
+from atlas_trader.domain.models.order import OrderIntent, OrderIntentStatus, OrderStatus
+from atlas_trader.domain.models.risk import RiskDecision
 from atlas_trader.infrastructure.exchanges.mock.adapter import MockExchangeAdapter
 
 
 def make_intent(*, mode: ExecutionMode = ExecutionMode.PAPER) -> OrderIntent:
+    now = datetime.now(UTC)
     return OrderIntent(
         client_order_id="ema-btc-20260822-buy",
         exchange="mock",
         symbol="BTC-USDT",
         side=OrderSide.BUY,
         order_type=OrderType.LIMIT,
-        amount=Decimal("0.001"),
-        price=Decimal("65000.00"),
-        mode=mode,
+        requested_quantity=Decimal("0.001"),
+        requested_notional=Decimal("65"),
+        limit_price=Decimal("65000.00"),
+        reference_price=Decimal("65000.00"),
+        execution_mode=mode,
+        trading_mode=mode,
+        execution_model="mock",
         strategy="ema_atr_v1",
+        risk_decision=RiskDecision(
+            approved=True,
+            requested_size=Decimal("0.001"),
+            approved_size=Decimal("0.001"),
+        ),
+        status=OrderIntentStatus.APPROVED,
         correlation_id="cycle-1",
-        created_at=datetime.now(UTC),
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -105,7 +118,7 @@ async def test_client_order_id_conflict_is_not_silently_accepted() -> None:
     adapter = MockExchangeAdapter()
     intent = make_intent()
     await adapter.place_order(intent)
-    conflicting = intent.model_copy(update={"amount": Decimal("0.002")})
+    conflicting = intent.model_copy(update={"requested_quantity": Decimal("0.002")})
 
     with pytest.raises(IdempotencyConflictError, match="different execution parameters"):
         await adapter.place_order(conflicting)

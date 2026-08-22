@@ -8,6 +8,7 @@ from atlas_trader.domain.metadata import Metadata
 from atlas_trader.infrastructure.database.models import (
     CandleRecord,
     MarketRecord,
+    OrderIntentRecord,
     RiskStateRecord,
     SignalRecord,
 )
@@ -85,4 +86,22 @@ def test_risk_state_financial_columns_are_numeric() -> None:
     table = cast(Table, RiskStateRecord.__table__)
 
     for name in ("starting_equity", "realized_pnl", "peak_equity", "drawdown"):
+        assert isinstance(table.c[name].type, Numeric)
+
+
+def test_order_intent_idempotency_and_numeric_schema() -> None:
+    table = cast(Table, OrderIntentRecord.__table__)
+    constraints = {
+        constraint.name
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+    assert "uq_order_intents_client_order_id" in constraints
+    for name in (
+        "requested_quantity",
+        "requested_notional",
+        "limit_price",
+        "reference_price",
+    ):
         assert isinstance(table.c[name].type, Numeric)
