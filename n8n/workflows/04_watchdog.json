@@ -1,0 +1,58 @@
+{
+  "name": "04_watchdog",
+  "active": false,
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 1}]}}
+    },
+    {
+      "id": "health",
+      "name": "AtlasTrader Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [230, 0],
+      "parameters": {"url": "={{ $env.ATLAS_BASE_URL + '/health' }}"}
+    },
+    {
+      "id": "state",
+      "name": "AtlasTrader Safety State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 0],
+      "parameters": {
+        "url": "={{ $env.ATLAS_BASE_URL + '/admin/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "X-Correlation-ID", "value": "={{ 'n8n-' + $execution.id }}"}]}
+      }
+    },
+    {
+      "id": "enabled",
+      "name": "Trading Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [700, 0],
+      "parameters": {"conditions": {"options": {"caseSensitive": true}, "conditions": [{"leftValue": "={{ $json.system_state }}", "rightValue": "enabled", "operator": {"type": "string", "operation": "equals"}}]}}
+    },
+    {
+      "id": "review",
+      "name": "Stop For Operator Review",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [950, 100],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule": {"main": [[{"node": "AtlasTrader Health", "type": "main", "index": 0}]]},
+    "AtlasTrader Health": {"main": [[{"node": "AtlasTrader Safety State", "type": "main", "index": 0}]]},
+    "AtlasTrader Safety State": {"main": [[{"node": "Trading Enabled?", "type": "main", "index": 0}]]},
+    "Trading Enabled?": {"main": [[], [{"node": "Stop For Operator Review", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "versionId": "40404040-4040-4040-8040-404040404040"
+}

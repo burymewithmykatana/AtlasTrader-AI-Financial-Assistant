@@ -10,8 +10,14 @@ from atlas_trader.domain.enums.order_type import OrderType
 from atlas_trader.domain.enums.signal_action import SignalAction
 from atlas_trader.domain.enums.timeframe import Timeframe
 from atlas_trader.domain.models.candle import Candle
-from atlas_trader.domain.models.order import ExchangeOrder, OrderIntent, OrderStatus
+from atlas_trader.domain.models.order import (
+    ExchangeOrder,
+    OrderIntent,
+    OrderIntentStatus,
+    OrderStatus,
+)
 from atlas_trader.domain.models.portfolio import Balance
+from atlas_trader.domain.models.risk import RiskDecision
 from atlas_trader.domain.models.signal import Signal
 
 
@@ -73,6 +79,7 @@ def test_domain_metadata_cannot_hide_nested_float() -> None:
 
 
 def test_limit_order_requires_price() -> None:
+    now = datetime.now(UTC)
     with pytest.raises(ValidationError, match="limit orders require a price"):
         OrderIntent(
             client_order_id="test-order-1",
@@ -80,11 +87,21 @@ def test_limit_order_requires_price() -> None:
             symbol="BTC-USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            amount=Decimal("1"),
-            mode=ExecutionMode.PAPER,
+            requested_quantity=Decimal("1"),
+            reference_price=Decimal("100"),
+            execution_mode=ExecutionMode.PAPER,
+            trading_mode=ExecutionMode.PAPER,
+            execution_model="paper",
             strategy="test",
+            risk_decision=RiskDecision(
+                approved=True,
+                requested_size=Decimal("1"),
+                approved_size=Decimal("1"),
+            ),
+            status=OrderIntentStatus.APPROVED,
             correlation_id="cycle-1",
-            created_at=datetime.now(UTC),
+            created_at=now,
+            updated_at=now,
         )
 
 

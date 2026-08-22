@@ -30,6 +30,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://atlas:ci-only-password@localhost:5432/atlas_trader
+      PHASE2_E2E_DATABASE_URL: postgresql+asyncpg://atlas:ci-only-password@localhost:5432/atlas_trader
       GIT_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -42,9 +43,9 @@ jobs:
       - run: python -m ruff check .
       - run: python -m ruff format --check .
       - run: python -m mypy
-      - run: python -m pytest
       - run: alembic upgrade head
       - run: alembic check
+      - run: python -m pytest
       - run: docker compose config --quiet
       - name: Reject committed environment files
         run: test -z "$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)"

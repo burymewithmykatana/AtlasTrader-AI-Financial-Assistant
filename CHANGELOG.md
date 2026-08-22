@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Phase 2 PAPER trading
+
+- Added persistent centralized risk state and deterministic configurable rules.
+- Added durable idempotent order intents and atomic PAPER portfolio execution.
+- Added pause/kill controls, reconciliation, correlation-linked audit events, and APIs.
+- Added sanitized n8n PAPER workflows and PostgreSQL release-gate scenarios.
+- No authenticated, testnet, or live exchange execution was introduced.
+
 All notable changes are recorded here. Tags follow the policy in `CONTRIBUTING.md`.
 
 ## Unreleased — Phase 1 hardening

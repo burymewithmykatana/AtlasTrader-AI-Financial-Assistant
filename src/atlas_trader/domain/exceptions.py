@@ -27,3 +27,15 @@ class IdempotencyConflictError(ExchangeError):
 
 class InvalidOrderStateError(ExchangeError):
     """An order transition is invalid for its current terminal state."""
+
+
+class PaperExecutionRejectedError(AtlasTraderError):
+    """A PAPER fill cannot be safely simulated from the supplied state."""
+
+
+class ReconciliationError(AtlasTraderError):
+    """Persisted PAPER execution state is internally inconsistent."""
+
+
+class InvalidSystemStateTransitionError(AtlasTraderError):
+    """An operator requested a prohibited system-state transition."""
