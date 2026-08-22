@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from atlas_trader.domain.enums.order_side import OrderSide
@@ -201,3 +201,33 @@ class RiskService:
         if reset != state:
             await self._repository.save(reset)
         return self._engine.evaluate(requested_size, context, reset)
+
+    async def record_execution(
+        self,
+        account_id: str,
+        *,
+        realized_pnl: Decimal,
+        equity: Decimal,
+        open_positions: int,
+        cooldown_minutes: int,
+        now: datetime,
+    ) -> RiskState:
+        state = await self._repository.get(account_id)
+        if state is None:
+            raise RuntimeError("risk state unavailable while recording execution")
+        peak = max(state.peak_equity, equity)
+        cooldown_until = state.cooldown_until
+        if realized_pnl < ZERO:
+            cooldown_until = now + timedelta(minutes=cooldown_minutes)
+        updated = state.model_copy(
+            update={
+                "realized_pnl": state.realized_pnl + realized_pnl,
+                "peak_equity": peak,
+                "drawdown": peak - equity,
+                "cooldown_until": cooldown_until,
+                "open_positions": open_positions,
+                "updated_at": now,
+            }
+        )
+        await self._repository.save(updated)
+        return updated

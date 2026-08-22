@@ -325,6 +325,7 @@ def harness(
         unit_of_work=unit,
         account_id="paper:default",
         mode=ExecutionMode.PAPER,
+        cooldown_minutes=60,
     )
     return service, signal_id, intents, execution, unit, events, portfolio
 

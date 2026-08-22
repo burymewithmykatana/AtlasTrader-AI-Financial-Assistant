@@ -72,3 +72,6 @@ class OrderIntentService:
             updated_at=now,
         )
         return await self._repository.create_or_get(intent)
+
+    async def get(self, intent_id: UUID) -> OrderIntent | None:
+        return await self._repository.get(intent_id)

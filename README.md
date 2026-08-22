@@ -88,6 +88,9 @@ domain timeframes are `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, and `1d`. See
 [market data](docs/market-data.md), [backtesting](docs/backtesting.md), and the
 [strategy system](docs/strategy-system.md).
 
+See [PAPER trading](docs/paper-trading.md) for the risk, intent, execution, recovery,
+reconciliation, and kill-switch contract.
+
 ## Quality checks
 
 ```bash

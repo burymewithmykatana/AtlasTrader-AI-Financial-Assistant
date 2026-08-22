@@ -205,3 +205,23 @@ async def test_missing_persistent_risk_state_fails_closed() -> None:
     )
 
     assert decision.reasons == ("risk_state_unavailable",)
+
+
+@pytest.mark.asyncio
+async def test_losing_execution_persists_daily_pnl_drawdown_and_cooldown() -> None:
+    repository = MemoryRiskRepository(state())
+    service = RiskService(RiskEngine(()), repository)
+
+    updated = await service.record_execution(
+        "paper:default",
+        realized_pnl=Decimal("-25"),
+        equity=Decimal("975"),
+        open_positions=0,
+        cooldown_minutes=60,
+        now=NOW,
+    )
+
+    assert updated.realized_pnl == Decimal("-25")
+    assert updated.drawdown == Decimal("25")
+    assert updated.cooldown_until == NOW + timedelta(minutes=60)
+    assert repository.saved[-1] == updated

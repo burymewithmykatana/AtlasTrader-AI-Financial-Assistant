@@ -93,6 +93,7 @@ class PaperTradingCycleService:
         unit_of_work: TradingUnitOfWork,
         account_id: str,
         mode: ExecutionMode,
+        cooldown_minutes: int,
     ) -> None:
         self._signals = signals
         self._markets = markets
@@ -106,6 +107,7 @@ class PaperTradingCycleService:
         self._unit_of_work = unit_of_work
         self._account_id = account_id
         self._mode = mode
+        self._cooldown_minutes = cooldown_minutes
 
     async def run(
         self, signal_id: UUID, quantity: Decimal, *, correlation_id: str, now: datetime
@@ -189,6 +191,15 @@ class PaperTradingCycleService:
             execution = await self._execution.execute(
                 intent, market, ticker, account_id=self._account_id, now=now
             )
+            if execution.created:
+                await self._risk.record_execution(
+                    self._account_id,
+                    realized_pnl=execution.fill.realized_pnl,
+                    equity=execution.snapshot.total_equity,
+                    open_positions=1 if execution.position.quantity > 0 else 0,
+                    cooldown_minutes=self._cooldown_minutes,
+                    now=now,
+                )
             await self._unit_of_work.commit()
         except AtlasTraderError as exc:
             await self._unit_of_work.rollback()
@@ -202,6 +213,10 @@ class PaperTradingCycleService:
             )
             await self._unit_of_work.commit()
             raise PaperExecutionRejectedError("paper execution failed safely") from exc
+
+        persisted_intent = await self._intents.get(intent.id)
+        if persisted_intent is not None:
+            intent = persisted_intent
 
         report = await self._reconciliation.run(
             self._account_id, correlation_id=correlation_id, now=now

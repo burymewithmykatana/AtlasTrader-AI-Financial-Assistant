@@ -265,16 +265,17 @@ class PaperFillRecord(Base):
 
 class PaperPortfolioSnapshotRecord(Base):
     __tablename__ = "paper_portfolio_snapshots"
+    __table_args__ = (Index("ix_paper_snapshots_account_time", "account_id", "timestamp"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    account_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False)
     quote_asset: Mapped[str] = mapped_column(String(32), nullable=False)
     cash: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
     positions_value: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
     total_equity: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
     realized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
     unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(36, 18), nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class BacktestRunRecord(Base):

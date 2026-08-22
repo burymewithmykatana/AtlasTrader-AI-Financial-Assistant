@@ -139,6 +139,7 @@ async def trading_cycle(
                 unit_of_work=SqlAlchemyTradingUnitOfWork(session),
                 account_id=settings.paper_account_id,
                 mode=settings.trading_mode,
+                cooldown_minutes=settings.cooldown_minutes,
             )
             return await service.run(
                 body.signal_id,
