@@ -1,0 +1,6 @@
+{
+  "status": "ok",
+  "trades": [
+    {"time": 1787385600123, "price": "not-a-number", "volume": "", "type": "buy"}
+  ]
+}

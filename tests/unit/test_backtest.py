@@ -160,3 +160,58 @@ def test_strategy_never_receives_future_candles() -> None:
     BacktestEngine().run(InspectingStrategy({}), data, config(data))
 
     assert seen_lengths == [1, 2, 3, 4]
+
+
+def test_dataset_fingerprint_and_effective_range_are_explicit() -> None:
+    data = candles(["100", "101", "102", "103"])
+
+    result = BacktestEngine().run(ScheduledStrategy({}), data, config(data))
+
+    assert result.dataset.candle_count == 4
+    assert result.dataset.effective_start_time == data[0].timestamp
+    assert result.dataset.effective_end_time == data[-1].timestamp
+    assert result.dataset.fingerprint.startswith("sha256:")
+    assert len(result.dataset.fingerprint) == 71
+    assert result.code_version
+    assert result.execution_assumptions["fee_model"] == "percentage_of_fill_notional"
+
+
+def test_future_candle_mutation_cannot_change_earlier_signal_or_fill() -> None:
+    data = candles([str(100 + index) for index in range(15)])
+    mutated = list(data)
+    future = mutated[12]
+    mutated[12] = Candle(
+        exchange=future.exchange,
+        symbol=future.symbol,
+        timeframe=future.timeframe,
+        timestamp=future.timestamp,
+        open=Decimal("999"),
+        high=Decimal("1000"),
+        low=Decimal("998"),
+        close=Decimal("999"),
+        volume=future.volume,
+    )
+
+    original = BacktestEngine().run(
+        ScheduledStrategy({2: SignalAction.BUY, 4: SignalAction.SELL}), data, config(data)
+    )
+    changed = BacktestEngine().run(
+        ScheduledStrategy({2: SignalAction.BUY, 4: SignalAction.SELL}),
+        mutated,
+        config(mutated),
+    )
+
+    assert original.trades == changed.trades
+    assert original.dataset.fingerprint != changed.dataset.fingerprint
+
+
+def test_identical_inputs_have_identical_reproducible_outputs() -> None:
+    data = candles(["100", "100", "110", "110"])
+    strategy = ScheduledStrategy({0: SignalAction.BUY, 1: SignalAction.SELL})
+
+    first = BacktestEngine().run(strategy, data, config(data, fee="0.001", slippage="5"))
+    second = BacktestEngine().run(strategy, data, config(data, fee="0.001", slippage="5"))
+
+    assert first.model_dump(exclude={"id", "started_at", "completed_at"}) == second.model_dump(
+        exclude={"id", "started_at", "completed_at"}
+    )

@@ -3,17 +3,18 @@ from typing import Protocol
 
 from atlas_trader.domain.enums.timeframe import Timeframe
 from atlas_trader.domain.models.candle import CandlePage
-from atlas_trader.domain.models.market import Market
+from atlas_trader.domain.models.market import MarketDiscoverySnapshot
 
 
 class PublicMarketDiscoveryAdapter(Protocol):
     name: str
 
-    async def discover_markets(self, *, correlation_id: str) -> list[Market]: ...
+    async def discover_markets(self, *, correlation_id: str) -> MarketDiscoverySnapshot: ...
 
 
 class PublicCandleAdapter(Protocol):
     name: str
+    maximum_candles_per_page: int
 
     async def get_candle_page(
         self,

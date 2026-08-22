@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import UTC
 from decimal import Decimal
 from pathlib import Path
@@ -110,6 +111,23 @@ def test_recent_public_trade_mapping() -> None:
     assert trade.price == Decimal("65000.12")
     assert trade.amount == Decimal("0.002")
     assert trade.timestamp.tzinfo is UTC
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "parser"),
+    [
+        ("orderbook_malformed_numeric.json", OrderBookDTO.from_payload),
+        ("orderbook_malformed_level.json", OrderBookDTO.from_payload),
+        ("trades_malformed_numeric.json", TradesResponseDTO.from_payload),
+        ("udf_malformed_numeric.json", UdfHistoryDTO.from_payload),
+    ],
+)
+def test_malformed_vendor_numerics_surface_stable_response_errors(
+    fixture_name: str,
+    parser: Callable[[dict[str, object]], object],
+) -> None:
+    with pytest.raises(NobitexResponseError, match="invalid"):
+        parser(load(fixture_name))
 
 
 @pytest.mark.parametrize(

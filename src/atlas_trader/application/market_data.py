@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import datetime
+from enum import StrEnum
 from math import ceil
 from typing import Protocol
 
@@ -14,12 +15,12 @@ from atlas_trader.domain.interfaces.market_data import (
 )
 from atlas_trader.domain.models.base import DomainModel
 from atlas_trader.domain.models.candle import Candle
-from atlas_trader.domain.models.market import Market
+from atlas_trader.domain.models.market import MarketDiscoverySnapshot
 from atlas_trader.infrastructure.database.repositories.common import UpsertStats
 
 
 class MarketRepository(Protocol):
-    async def reconcile(self, exchange: str, markets: list[Market]) -> UpsertStats: ...
+    async def reconcile(self, snapshot: MarketDiscoverySnapshot) -> UpsertStats: ...
 
 
 class CandleRepository(Protocol):
@@ -37,14 +38,23 @@ class CandleRepository(Protocol):
 
 class MarketDiscoveryResult(DomainModel):
     exchange: str
+    complete: bool
     discovered: int = Field(ge=0)
     inserted: int = Field(ge=0)
     updated: int = Field(ge=0)
 
 
+class CandleGapKind(StrEnum):
+    LEADING = "leading"
+    INTERNAL = "internal"
+    TRAILING = "trailing"
+    EMPTY = "empty"
+
+
 class CandleGap(DomainModel):
+    kind: CandleGapKind
     expected_open_time: AwareDatetime
-    next_available_open_time: AwareDatetime
+    next_available_open_time: AwareDatetime | None = None
     missing_candles: int = Field(ge=1)
 
 
@@ -67,11 +77,14 @@ class MarketDiscoveryService:
         self._repository = repository
 
     async def run(self, *, correlation_id: str) -> MarketDiscoveryResult:
-        markets = await self._adapter.discover_markets(correlation_id=correlation_id)
-        stats = await self._repository.reconcile(self._adapter.name, markets)
+        snapshot = await self._adapter.discover_markets(correlation_id=correlation_id)
+        if snapshot.exchange != self._adapter.name:
+            raise ValueError("market snapshot exchange does not match its adapter")
+        stats = await self._repository.reconcile(snapshot)
         return MarketDiscoveryResult(
             exchange=self._adapter.name,
-            discovered=len(markets),
+            complete=snapshot.complete,
+            discovered=len(snapshot.markets),
             inserted=stats.inserted,
             updated=stats.updated,
         )
@@ -79,6 +92,8 @@ class MarketDiscoveryService:
 
 class CandleSyncService:
     def __init__(self, adapter: PublicCandleAdapter, repository: CandleRepository) -> None:
+        if adapter.maximum_candles_per_page < 1:
+            raise ValueError("adapter candle page size must be positive")
         self._adapter = adapter
         self._repository = repository
 
@@ -98,9 +113,11 @@ class CandleSyncService:
             raise ValueError("sync boundaries must be timezone-aware")
         if end < start:
             raise ValueError("sync end cannot be before start")
+        self._require_aligned(start, timeframe, "start")
+        self._require_aligned(end, timeframe, "end")
 
-        estimated = max(1, ceil((end - start) / timeframe.duration))
-        max_pages = ceil(estimated / 500) + 2
+        estimated = int((end - start) / timeframe.duration) + 1
+        max_pages = ceil(estimated / self._adapter.maximum_candles_per_page) + 1
         received: list[Candle] = []
         rejected = 0
         for page_number in range(1, max_pages + 1):
@@ -119,7 +136,7 @@ class CandleSyncService:
         else:
             raise RuntimeError("candle pagination exceeded its deterministic safety bound")
 
-        normalized, duplicate_rejections = self._normalize(received, start, end)
+        normalized, duplicate_rejections = self._normalize(received, start, end, timeframe)
         rejected += duplicate_rejections
         stats = await self._repository.upsert(normalized)
         return CandleSyncResult(
@@ -132,17 +149,20 @@ class CandleSyncService:
             inserted=stats.inserted,
             updated=stats.updated,
             rejected=rejected,
-            gaps=self.detect_gaps(normalized, timeframe),
+            gaps=self.detect_gaps(normalized, timeframe, start, end),
         )
 
     @staticmethod
     def _normalize(
-        candles: Sequence[Candle], start: datetime, end: datetime
+        candles: Sequence[Candle], start: datetime, end: datetime, timeframe: Timeframe
     ) -> tuple[list[Candle], int]:
         unique: dict[datetime, Candle] = {}
         rejected = 0
         for candle in sorted(candles, key=lambda item: item.timestamp):
             if candle.timestamp < start or candle.timestamp > end:
+                rejected += 1
+                continue
+            if not CandleSyncService._is_aligned(candle.timestamp, timeframe):
                 rejected += 1
                 continue
             if candle.timestamp in unique:
@@ -152,18 +172,67 @@ class CandleSyncService:
         return list(unique.values()), rejected
 
     @staticmethod
-    def detect_gaps(candles: Sequence[Candle], timeframe: Timeframe) -> tuple[CandleGap, ...]:
+    def detect_gaps(
+        candles: Sequence[Candle],
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[CandleGap, ...]:
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("gap boundaries must be timezone-aware")
+        if end < start:
+            raise ValueError("gap end cannot be before start")
+        CandleSyncService._require_aligned(start, timeframe, "start")
+        CandleSyncService._require_aligned(end, timeframe, "end")
         ordered = sorted(candles, key=lambda candle: candle.timestamp)
+        if not ordered:
+            return (
+                CandleGap(
+                    kind=CandleGapKind.EMPTY,
+                    expected_open_time=start,
+                    missing_candles=int((end - start) / timeframe.duration) + 1,
+                ),
+            )
         gaps: list[CandleGap] = []
+        first = ordered[0].timestamp
+        if first > start:
+            gaps.append(
+                CandleGap(
+                    kind=CandleGapKind.LEADING,
+                    expected_open_time=start,
+                    next_available_open_time=first,
+                    missing_candles=int((first - start) / timeframe.duration),
+                )
+            )
         for previous, current in zip(ordered, ordered[1:], strict=False):
             expected = previous.timestamp + timeframe.duration
             if current.timestamp > expected:
                 missing = int((current.timestamp - expected) / timeframe.duration)
                 gaps.append(
                     CandleGap(
+                        kind=CandleGapKind.INTERNAL,
                         expected_open_time=expected,
                         next_available_open_time=current.timestamp,
                         missing_candles=missing,
                     )
                 )
+        last = ordered[-1].timestamp
+        if last < end:
+            gaps.append(
+                CandleGap(
+                    kind=CandleGapKind.TRAILING,
+                    expected_open_time=last + timeframe.duration,
+                    missing_candles=int((end - last) / timeframe.duration),
+                )
+            )
         return tuple(gaps)
+
+    @staticmethod
+    def _is_aligned(value: datetime, timeframe: Timeframe) -> bool:
+        duration_seconds = int(timeframe.duration.total_seconds())
+        return value.microsecond == 0 and int(value.timestamp()) % duration_seconds == 0
+
+    @staticmethod
+    def _require_aligned(value: datetime, timeframe: Timeframe, name: str) -> None:
+        if not CandleSyncService._is_aligned(value, timeframe):
+            raise ValueError(f"sync {name} must align to the {timeframe.value} candle grid")

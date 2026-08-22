@@ -2,14 +2,17 @@
 
 `MarketDiscoveryService` fetches options and all order books, derives the current universe,
 maps precision/minimum-order metadata, and reconciles `(exchange, symbol)` records. Missing
-markets are marked inactive; records are never deleted. Asset classification comes from
+markets are marked inactive only when the adapter explicitly certifies a complete snapshot;
+partial snapshots update observed markets without touching unseen records. Complete empty
+snapshots require an explicit opt-in policy. Records are never deleted. Asset classification comes from
 `ASSET_CLASSIFICATIONS`. Unknown assets remain valid as `unknown`, so a newly listed or
 gold-backed asset needs only configuration—not adapter code.
 
 `CandleSyncService` accepts exchange, exchange-native symbol, domain timeframe, and aware
 start/end timestamps. It follows the Nobitex 500-row pages with a deterministic safety
-bound, rejects out-of-range/duplicate/invalid OHLCV rows, orders normalized timestamps,
-upserts them, and reports exact internal gaps. The candle identity is `(exchange, symbol,
+bound derived from the adapter's advertised page size, rejects out-of-range, unaligned,
+duplicate, or invalid OHLCV rows, orders normalized timestamps, upserts them, and reports
+exact leading, internal, trailing, or empty-range gaps. The candle identity is `(exchange, symbol,
 timeframe, open_time)` and the lookup index ends with `open_time DESC`.
 
 Use the CLI:

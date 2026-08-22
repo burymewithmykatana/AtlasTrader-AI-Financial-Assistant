@@ -10,6 +10,7 @@ from atlas_trader.domain.enums.order_side import OrderSide
 from atlas_trader.domain.enums.timeframe import Timeframe
 from atlas_trader.domain.models.backtest import (
     BacktestConfig,
+    BacktestDataset,
     BacktestMetrics,
     BacktestResult,
     BacktestTrade,
@@ -37,11 +38,16 @@ class SqlAlchemyBacktestRepository:
                 timeframe=result.config.timeframe.value,
                 start_time=result.config.start_time,
                 end_time=result.config.end_time,
+                candle_count=result.dataset.candle_count,
+                effective_start_time=result.dataset.effective_start_time,
+                effective_end_time=result.dataset.effective_end_time,
+                dataset_fingerprint=result.dataset.fingerprint,
                 initial_capital=result.metrics.initial_capital,
                 ending_equity=result.metrics.ending_equity,
                 parameters=encode_metadata(result.strategy_parameters),
                 execution_model=result.config.execution_model.value,
                 fee_rate=result.config.fee_rate,
+                fee_model="percentage_of_fill_notional",
                 slippage_model="fixed_basis_points_adverse",
                 slippage_bps=result.config.slippage_bps,
                 metrics=serialized["metrics"],
@@ -117,6 +123,12 @@ class SqlAlchemyBacktestRepository:
             strategy_version=record.strategy_version,
             strategy_parameters=decode_metadata(record.parameters),
             config=config,
+            dataset=BacktestDataset(
+                candle_count=record.candle_count,
+                effective_start_time=record.effective_start_time,
+                effective_end_time=record.effective_end_time,
+                fingerprint=record.dataset_fingerprint,
+            ),
             metrics=BacktestMetrics.model_validate_json(json.dumps(record.metrics)),
             trades=tuple(
                 BacktestTrade(
@@ -136,6 +148,7 @@ class SqlAlchemyBacktestRepository:
                 "signal_execution_delay_candles": 1,
                 "portfolio": "spot_long_only_single_market",
                 "fee_application": "each_fill_notional",
+                "fee_model": record.fee_model,
                 "slippage": record.slippage_model,
             },
             code_version=record.code_version,

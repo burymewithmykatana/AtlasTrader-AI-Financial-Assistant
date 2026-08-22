@@ -1,4 +1,6 @@
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +15,14 @@ from atlas_trader.infrastructure.exchanges.nobitex.errors import (
     NobitexRequestError,
     NobitexResponseError,
 )
+
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "nobitex"
+
+
+def fixture(name: str) -> dict[str, object]:
+    result = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    assert isinstance(result, dict)
+    return result
 
 
 @pytest.mark.asyncio
@@ -102,3 +112,37 @@ async def test_public_adapter_fails_closed_for_authenticated_operations() -> Non
         adapter = NobitexPublicAdapter(client)
         with pytest.raises(ExchangeOrderRejectedError, match="no authenticated"):
             await adapter.get_balances()
+
+
+@pytest.mark.asyncio
+async def test_public_adapter_normalizes_malformed_numeric_response() -> None:
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json=fixture("orderbook_malformed_numeric.json"))
+    )
+
+    async with NobitexPublicClient(transport=transport) as client:
+        with pytest.raises(NobitexResponseError, match="invalid"):
+            await NobitexPublicAdapter(client).get_orderbook("BTCUSDT")
+
+
+@pytest.mark.asyncio
+async def test_nobitex_mapping_failure_returns_incomplete_snapshot() -> None:
+    options = fixture("options.json")
+    nobitex = options["nobitex"]
+    assert isinstance(nobitex, dict)
+    price_precisions = nobitex["pricePrecisions"]
+    assert isinstance(price_precisions, dict)
+    del price_precisions["ABCUSDT"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/options":
+            return httpx.Response(200, json=options)
+        return httpx.Response(200, json=fixture("orderbooks_all.json"))
+
+    async with NobitexPublicClient(transport=httpx.MockTransport(handler)) as client:
+        snapshot = await NobitexPublicAdapter(client).discover_markets(
+            correlation_id="partial-discovery"
+        )
+
+    assert snapshot.complete is False
+    assert {market.symbol for market in snapshot.markets} == {"BTCUSDT", "XAUTUSDT"}

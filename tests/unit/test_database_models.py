@@ -2,6 +2,7 @@ from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import Numeric, Table, UniqueConstraint
+from sqlalchemy.dialects.postgresql import insert
 
 from atlas_trader.domain.metadata import Metadata
 from atlas_trader.infrastructure.database.models import CandleRecord, MarketRecord, SignalRecord
@@ -65,3 +66,11 @@ def test_jsonb_metadata_codec_preserves_decimal_without_float() -> None:
         "nested": {"amount": {"__atlas_decimal__": "12.30"}},
     }
     assert decode_metadata(encoded) == original
+
+
+def test_jsonb_orm_inserts_use_non_reserved_metadata_attribute() -> None:
+    market_statement = insert(MarketRecord).values(metadata_={})
+    signal_statement = insert(SignalRecord).values(metadata_={})
+
+    assert "metadata" in str(market_statement)
+    assert "metadata" in str(signal_statement)
