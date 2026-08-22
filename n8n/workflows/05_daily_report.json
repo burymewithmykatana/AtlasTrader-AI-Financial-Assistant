@@ -1,0 +1,35 @@
+{
+  "name": "05_daily_report",
+  "active": false,
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {"rule": {"interval": [{"field": "hours", "hoursInterval": 24}]}}
+    },
+    {
+      "id": "portfolio",
+      "name": "Paper Portfolio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -80],
+      "parameters": {"url": "={{ $env.ATLAS_BASE_URL + '/portfolio' }}"}
+    },
+    {
+      "id": "orders",
+      "name": "Paper Orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 80],
+      "parameters": {"url": "={{ $env.ATLAS_BASE_URL + '/orders?limit=500' }}"}
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {"main": [[{"node": "Paper Portfolio", "type": "main", "index": 0}, {"node": "Paper Orders", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "versionId": "50505050-5050-4050-8050-505050505050"
+}

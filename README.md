@@ -1,11 +1,11 @@
 # AtlasTrader
 
-AtlasTrader is a safety-first, exchange-agnostic trading research platform. Phase 1 adds
-credential-free Nobitex public market data and deterministic backtesting on top of the
-audited Phase 0 foundation.
+AtlasTrader is a safety-first, exchange-agnostic trading platform. Phase 2 adds durable,
+deterministic PAPER execution on top of credential-free public market data and
+backtesting.
 
-> **PHASE 1 HAS NO REAL TRADING CAPABILITY.** It cannot authenticate to Nobitex, read a
-> wallet, or place/cancel an order. No API token is required or sent.
+> **PHASE 2 IS PAPER ONLY.** It cannot authenticate to Nobitex, read a wallet, or submit
+> an exchange order. No API token is required or sent.
 
 ## Current scope
 
@@ -20,10 +20,14 @@ audited Phase 0 foundation.
 - Decimal-only EMA/ATR signals and next-candle-open backtests
 - `GET /health`, `/markets`, `/market-data/candles`, and `/backtests`
 - `POST /market-data/sync` and `/backtests`
+- centralized risk rules, persistent order intents, PAPER balances/positions/fills,
+  reconciliation, and a persistent kill switch
+- `POST /trading/cycle`, `/trading/reconcile`, and admin state controls
+- thin, inactive n8n PAPER workflow exports
 - unit and integration tests
 - strict static type checking and migration validation in CI
 
-Nobitex authentication, paper/actual execution, wallet access, withdrawals, transfers,
+Nobitex authentication, testnet/live execution, wallet access, withdrawals, transfers,
 margin, and Telegram trading commands are not implemented. Never commit a populated
 `.env` file.
 
@@ -62,7 +66,7 @@ docker compose up --build
 
 Then open `http://localhost:8000/health` or `http://localhost:8000/docs`.
 
-## Phase 1 workflow
+## Market-data and backtest workflow
 
 Discover current markets (no symbols are hard-coded):
 
@@ -106,9 +110,9 @@ TRADING_MODE=live
 LIVE_TRADING_ENABLED=true
 ```
 
-Either setting alone is rejected during startup. This configuration guard is only one
-layer; later phases will add centralized risk, persistent order intents, reconciliation,
-and the global kill switch before any production adapter can be enabled.
+Either setting alone is rejected during startup. PAPER execution additionally requires
+a persisted approved risk decision and order intent; PAUSED/KILLED state blocks new
+execution, and KILLED cannot be cleared by routine resume.
 
 ## Project layout
 

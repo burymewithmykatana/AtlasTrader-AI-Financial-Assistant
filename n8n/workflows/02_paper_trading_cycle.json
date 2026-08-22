@@ -1,0 +1,48 @@
+{
+  "name": "02_paper_trading_cycle",
+  "active": false,
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}
+    },
+    {
+      "id": "signals",
+      "name": "Latest Stored Signal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0],
+      "parameters": {
+        "url": "={{ $env.ATLAS_BASE_URL + '/signals?limit=1' }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "X-Correlation-ID", "value": "={{ 'n8n-' + $execution.id }}"}]}
+      }
+    },
+    {
+      "id": "cycle",
+      "name": "AtlasTrader PAPER Cycle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [510, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ATLAS_BASE_URL + '/trading/cycle' }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "X-Correlation-ID", "value": "={{ 'n8n-' + $execution.id }}"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { signal_id: $json[0].id } }}"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {"main": [[{"node": "Latest Stored Signal", "type": "main", "index": 0}]]},
+    "Latest Stored Signal": {"main": [[{"node": "AtlasTrader PAPER Cycle", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "versionId": "20202020-2020-4020-8020-202020202020"
+}

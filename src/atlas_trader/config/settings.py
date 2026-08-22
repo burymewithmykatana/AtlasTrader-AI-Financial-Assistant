@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     paper_account_id: str = "paper:default"
     paper_quote_asset: str = "USDT"
     paper_initial_balance: Decimal = Field(default=Decimal("10000"), gt=0)
+    paper_default_order_quantity: Decimal = Field(default=Decimal("0.001"), gt=0)
 
     @field_validator("log_level", mode="before")
     @classmethod

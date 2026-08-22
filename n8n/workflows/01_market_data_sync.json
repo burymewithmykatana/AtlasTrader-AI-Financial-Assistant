@@ -1,0 +1,33 @@
+{
+  "name": "01_market_data_sync",
+  "active": false,
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}
+    },
+    {
+      "id": "sync",
+      "name": "AtlasTrader Market Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ATLAS_BASE_URL + '/market-data/sync' }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "X-Correlation-ID", "value": "={{ 'n8n-' + $execution.id }}"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { exchange: $env.ATLAS_EXCHANGE, symbol: $env.ATLAS_SYMBOL, timeframe: $env.ATLAS_TIMEFRAME, start: $now.minus({minutes: 30}).toISO(), end: $now.toISO() } }}"
+      }
+    }
+  ],
+  "connections": {"Schedule": {"main": [[{"node": "AtlasTrader Market Sync", "type": "main", "index": 0}]]}},
+  "settings": {"executionOrder": "v1"},
+  "versionId": "10101010-1010-4010-8010-101010101010"
+}

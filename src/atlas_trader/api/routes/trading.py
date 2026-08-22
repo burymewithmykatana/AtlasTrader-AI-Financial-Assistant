@@ -49,7 +49,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 class TradingCycleRequest(BaseModel):
     signal_id: UUID
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal | None = Field(default=None, gt=0)
 
 
 def _correlation_id(request: Request) -> str:
@@ -142,7 +142,7 @@ async def trading_cycle(
             )
             return await service.run(
                 body.signal_id,
-                body.quantity,
+                body.quantity or settings.paper_default_order_quantity,
                 correlation_id=_correlation_id(request),
                 now=now,
             )
